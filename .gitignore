@@ -1,0 +1,21 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+
+# Databases and Vector Index caches
+research_platform.db
+research_platform.faiss
+test_index.faiss
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# OS files
+.DS_Store
+Thumbs.db
