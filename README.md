@@ -125,7 +125,4 @@ Ran 8 tests in 0.339s
 OK
 ```
 
----
 
-## 📈 Resume Impact (Ready for your CV)
-> *"Built an end-to-end Research Intelligence Platform over 200+ academic publications utilizing FastAPI, Streamlit, and Docker Compose. Engineered a hybrid lexical-semantic search engine utilizing Reciprocal Rank Fusion (RRF) and optimized retrieval latency by serializing FAISS Vector Indices to disk. Integrated content-based recommendation systems using user-profile embedding centroids and mapped paper distributions using unsupervised K-Means and PCA dimensionality reduction."*
