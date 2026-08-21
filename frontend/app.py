@@ -57,14 +57,14 @@ db_connected = True
 db_papers_count = 0
 try:
     # Use trends endpoint as a proxy to check if backend is running and has papers
-    resp = requests.get(f"{BACKEND_URL}/api/trends", timeout=2)
+    resp = requests.get(f"{BACKEND_URL}/api/trends", timeout=15)
     if resp.status_code == 200:
         db_connected = True
         # Get count from clusters
-        clust_resp = requests.get(f"{BACKEND_URL}/api/clusters", timeout=2)
+        clust_resp = requests.get(f"{BACKEND_URL}/api/clusters", timeout=15)
         if clust_resp.status_code == 200:
             db_papers_count = len(clust_resp.json().get("papers", []))
-except requests.exceptions.ConnectionError:
+except requests.exceptions.RequestException:
     db_connected = False
 
 # Sidebar Widgets
