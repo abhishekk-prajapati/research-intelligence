@@ -83,6 +83,15 @@ def perform_seeding(db: Session):
         MLEngine.save_faiss_index("research_platform.faiss", all_embs)
 
 
+def run_background_seeding():
+    db = SessionLocal()
+    try:
+        perform_seeding(db)
+    except Exception as e:
+        print(f"Background seeding failed: {e}")
+    finally:
+        db.close()
+
 @app.on_event("startup")
 def startup_event():
     # Construct DB tables if not present
@@ -94,7 +103,8 @@ def startup_event():
         count = db.query(Paper).count()
         if count == 0:
             print("Database contains 0 records. Auto-triggering search index seeding...")
-            perform_seeding(db)
+            import threading
+            threading.Thread(target=run_background_seeding).start()
         else:
             print(f"Search index loaded with {count} papers from database.")
             # Verify and rebuild FAISS index binary if missing
