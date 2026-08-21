@@ -8,11 +8,13 @@ from sqlalchemy.orm import sessionmaker
 from unittest.mock import patch
 
 def mock_embeddings(texts):
+    import hashlib
     # Generates standard unit-normalized vectors of size 384 for mock testing
     embs = []
     for i, t in enumerate(texts):
         # Use a deterministic hash of the text to seed numpy so vectors are distinct
-        seed = abs(hash(t)) % 1000000
+        h = hashlib.md5(t.encode('utf-8')).hexdigest()
+        seed = int(h, 16) % 1000000
         np.random.seed(seed)
         vec = np.random.randn(384).astype(np.float32)
         vec /= np.linalg.norm(vec)
@@ -24,6 +26,7 @@ with patch('backend.ml_engine.MLEngine.generate_embeddings', side_effect=mock_em
     from backend.database import Base, Paper
     from backend.config import NUM_CLUSTERS
     from backend.ml_engine import MLEngine, HybridRetriever, ClusteringEngine, RecommendationEngine, RoadmapEngine, TrendEngine
+    from backend.evaluation_engine import EvaluationEngine
 
 class TestMLPipeline(unittest.TestCase):
     def setUp(self):
@@ -269,5 +272,45 @@ class TestMLPipeline(unittest.TestCase):
         for r in recs:
             self.assertTrue(0.0 <= r["score"] <= 1.0)
 
+    def test_evaluation_engine_metrics(self):
+        """Test that EvaluationEngine correctly maps ground truth and computes metrics."""
+        # Test ground truth mapping
+        gt1 = EvaluationEngine.get_ground_truth_domain("cs.CV", "An Image Database", "object recognition")
+        gt2 = EvaluationEngine.get_ground_truth_domain("cs.CL", "Attention Is All You Need", "transformer model translation")
+        gt3 = EvaluationEngine.get_ground_truth_domain("cs.RO", "Visuomotor Policies", "robotic arm manipulator")
+        gt4 = EvaluationEngine.get_ground_truth_domain("cs.LG", "Deep Reinforcement Learning", "q-learning policy network")
+        gt5 = EvaluationEngine.get_ground_truth_domain("cs.LG", "Generative Adversarial Nets", "adversarial training loss")
+        
+        self.assertEqual(gt1, "Computer Vision")
+        self.assertEqual(gt2, "Natural Language Processing")
+        self.assertEqual(gt3, "Robotics & Control")
+        self.assertEqual(gt4, "Reinforcement Learning")
+        self.assertEqual(gt5, "Machine Learning (General)")
+        
+        # Test evaluation execution on seeded database papers
+        all_papers = self.db.query(Paper).all()
+        eval_data = EvaluationEngine.evaluate_classifier(all_papers)
+        
+        # Verify metric structure
+        self.assertIn("overall", eval_data)
+        self.assertIn("per_class", eval_data)
+        self.assertIn("confusion_matrix", eval_data)
+        self.assertIn("mismatches", eval_data)
+        
+        overall = eval_data["overall"]
+        self.assertIn("accuracy", overall)
+        self.assertIn("macro", overall)
+        self.assertIn("weighted", overall)
+        self.assertTrue(0.0 <= overall["accuracy"] <= 1.0)
+        
+        per_class = eval_data["per_class"]
+        self.assertIn("Computer Vision", per_class)
+        self.assertTrue(0.0 <= per_class["Computer Vision"]["f1"] <= 1.0)
+        
+        cm = eval_data["confusion_matrix"]
+        self.assertEqual(len(cm["labels"]), 6)
+        self.assertEqual(len(cm["matrix"]), 6)
+
 if __name__ == "__main__":
     unittest.main()
+

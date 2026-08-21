@@ -10,6 +10,7 @@ from backend.config import SEED_TOPICS, SEED_LIMIT_PER_TOPIC
 from backend.database import get_db, init_db, Paper, SessionLocal
 from backend.arxiv_client import ArxivClient
 from backend.ml_engine import MLEngine, HybridRetriever, ClusteringEngine, RecommendationEngine, RoadmapEngine, TrendEngine
+from backend.evaluation_engine import EvaluationEngine
 
 app = FastAPI(
     title="Research Intelligence Platform API",
@@ -283,3 +284,35 @@ def get_trends(db: Session = Depends(get_db)):
 
     trends = TrendEngine.analyze_trends(all_papers)
     return trends
+
+
+@app.get("/api/evaluate", summary="Retrieve classification metrics and evaluation data")
+def evaluate(db: Session = Depends(get_db)):
+    """Computes classifier evaluation metrics: accuracy, precision, recall, f1, confusion matrix, and mismatches."""
+    papers = db.query(Paper).all()
+    if not papers:
+        raise HTTPException(status_code=404, detail="Database contains no papers to evaluate.")
+    
+    metrics = EvaluationEngine.evaluate_classifier(papers)
+    return metrics
+
+
+@app.post("/api/classify", summary="Classify a single custom paper")
+def classify_paper(data: dict):
+    """Classifies a custom research paper based on title, abstract, and primary category."""
+    title = data.get("title", "")
+    abstract = data.get("abstract", "")
+    primary_category = data.get("primary_category", "")
+    
+    pred_domain = MLEngine.classify_domain(title, abstract, primary_category)
+    true_domain = EvaluationEngine.get_ground_truth_domain(primary_category, title, abstract)
+    
+    return {
+        "title": title,
+        "primary_category": primary_category,
+        "predicted_domain": pred_domain,
+        "true_domain": true_domain,
+        "is_correct": pred_domain == true_domain
+    }
+
+

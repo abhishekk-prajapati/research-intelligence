@@ -1,3 +1,32 @@
+# --- AUTO-START BACKEND SUBPROCESS ---
+import os
+import sys
+import time
+import socket
+import subprocess
+
+def start_backend():
+    def is_port_in_use(port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex(('127.0.0.1', port)) == 0
+
+    if not is_port_in_use(8000):
+        # Determine repository root directory
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        env = os.environ.copy()
+        env["PYTHONPATH"] = repo_root + os.pathsep + env.get("PYTHONPATH", "")
+        
+        # Start uvicorn
+        subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8000"],
+            cwd=repo_root,
+            env=env
+        )
+        time.sleep(5)  # Give the server 5 seconds to spin up
+
+start_backend()
+# -------------------------------------
+
 import streamlit as st
 import requests
 import plotly.express as px
@@ -80,12 +109,13 @@ elif db_papers_count == 0:
                 st.error(f"Seeding failed: {e}")
 else:
     # Define Tabs
-    tab_search, tab_recs, tab_roadmap, tab_cluster, tab_trends = st.tabs([
+    tab_search, tab_recs, tab_roadmap, tab_cluster, tab_trends, tab_eval = st.tabs([
         "🔍 Hybrid RRF Search",
         "🎯 Personalized Recommendations",
         "🗺️ Learning Roadmaps",
         "🔮 Topic Clustering Map",
-        "📈 Trend Analysis"
+        "📈 Trend Analysis",
+        "📊 Classifier Evaluation"
     ])
 
     # ==========================================================================
@@ -469,3 +499,150 @@ else:
                             st.plotly_chart(fig_bar, use_container_width=True)
             except Exception as e:
                 st.error(f"Trends failed to load: {e}")
+
+    # ==========================================================================
+    # TAB 6: CLASSIFIER EVALUATION
+    # ==========================================================================
+    with tab_eval:
+        st.header("Classifier Evaluation & Performance Diagnostics")
+        st.write("Evaluate the accuracy, precision, recall, and F1-score of the rule-based Research Domain Classifier on all papers stored in the local SQLite database. Uses standard scikit-learn metrics compared against automated arXiv category ground truths.")
+
+        with st.spinner("Calculating classifier metrics..."):
+            try:
+                eval_resp = requests.get(f"{BACKEND_URL}/api/evaluate")
+                if eval_resp.status_code == 200:
+                    eval_data = eval_resp.json()
+                    overall = eval_data.get("overall", {})
+                    per_class = eval_data.get("per_class", {})
+                    cm_data = eval_data.get("confusion_matrix", {})
+                    mismatches = eval_data.get("mismatches", [])
+
+                    # 1. Metric Cards Row
+                    st.subheader("🎯 Key Classification Performance Metrics")
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Classifier Accuracy", f"{overall.get('accuracy', 0.0) * 100:.2f}%")
+                    col2.metric("Macro Precision", f"{overall.get('macro', {}).get('precision', 0.0) * 100:.2f}%")
+                    col3.metric("Macro Recall", f"{overall.get('macro', {}).get('recall', 0.0) * 100:.2f}%")
+                    col4.metric("Macro F1-Score", f"{overall.get('macro', {}).get('f1', 0.0) * 100:.2f}%")
+
+                    st.markdown("---")
+
+                    # 2. Charts Row: Per-Class Bar Chart & Confusion Matrix Heatmap
+                    col_chart, col_cm = st.columns([1, 1])
+
+                    with col_chart:
+                        st.subheader("📊 Per-Class Metric Profiles")
+                        st.write("Classification metrics evaluated for each academic domain.")
+                        
+                        # Prepare data for plotting per-class metrics
+                        rows = []
+                        for label, m in per_class.items():
+                            rows.append({"Domain": label, "Metric": "Precision", "Value": m["precision"]})
+                            rows.append({"Domain": label, "Metric": "Recall", "Value": m["recall"]})
+                            rows.append({"Domain": label, "Metric": "F1-Score", "Value": m["f1"]})
+                        
+                        df_pc = pd.DataFrame(rows)
+                        fig_pc = px.bar(
+                            df_pc,
+                            x="Domain",
+                            y="Value",
+                            color="Metric",
+                            barmode="group",
+                            template="plotly_dark",
+                            labels={"Value": "Score (0 to 1)"},
+                            height=400,
+                            color_discrete_map={
+                                "Precision": "#6366f1",
+                                "Recall": "#06b6d4",
+                                "F1-Score": "#10b981"
+                            }
+                        )
+                        fig_pc.update_layout(xaxis_tickangle=-45)
+                        st.plotly_chart(fig_pc, use_container_width=True)
+
+                    with col_cm:
+                        st.subheader("🧩 Confusion Matrix Heatmap")
+                        st.write("Examine true versus predicted category alignments to spot overlaps.")
+                        
+                        labels = cm_data.get("labels", [])
+                        matrix = cm_data.get("matrix", [])
+                        
+                        if labels and matrix:
+                            fig_cm = px.imshow(
+                                matrix,
+                                labels=dict(x="Predicted Domain", y="True Domain", color="Paper Count"),
+                                x=labels,
+                                y=labels,
+                                text_auto=True,
+                                color_continuous_scale="Viridis",
+                                template="plotly_dark",
+                                height=400
+                            )
+                            # Clean up layout margins
+                            fig_cm.update_layout(margin=dict(l=20, r=20, t=25, b=20))
+                            st.plotly_chart(fig_cm, use_container_width=True)
+
+                    st.markdown("---")
+
+                    # 3. Mismatch Inspector Section
+                    st.subheader("🔍 Mismatch Inspector & Debugger")
+                    st.write(f"The classifier has **{len(mismatches)} mismatches** between Predicted Domain (heuristics) and True Domain (arXiv category ground-truth). Review these to tune classification keywords.")
+                    
+                    if mismatches:
+                        mism_df = pd.DataFrame(mismatches)
+                        # Reorder columns for readability
+                        mism_df = mism_df[["id", "title", "primary_category", "true_domain", "predicted_domain", "abstract"]]
+                        mism_df.columns = ["ArXiv ID", "Title", "Category", "Ground Truth Domain", "Predicted Domain", "Abstract Snippet"]
+                        st.dataframe(mism_df, use_container_width=True, hide_index=True)
+                    else:
+                        st.success("🎉 Perfect alignment! No domain classification mismatches detected.")
+
+                    st.markdown("---")
+
+                    # 4. Custom Testing Bed
+                    st.subheader("🧪 Single-Paper Test Bed")
+                    st.write("Input a custom research abstract and category code to run standard classification rules dynamically.")
+
+                    with st.form("custom_classify_form"):
+                        col_t, col_c = st.columns([2, 1])
+                        with col_t:
+                            test_title = st.text_input("Paper Title", "Direct Policy Search in Neural Robots")
+                        with col_c:
+                            test_category = st.text_input("ArXiv Category Code", "cs.RO", help="e.g. cs.CV, cs.CL, cs.LG, cs.RO, quant-ph")
+                        
+                        test_abstract = st.text_area("Paper Abstract", "We demonstrate a novel reinforcement learning framework that maps joint torque sensors to robot limb velocities using policy gradient methods.")
+                        
+                        submitted = st.form_submit_button("Classify Custom Text", type="primary")
+                        if submitted:
+                            with st.spinner("Classifying text..."):
+                                try:
+                                    payload = {
+                                        "title": test_title,
+                                        "abstract": test_abstract,
+                                        "primary_category": test_category
+                                    }
+                                    class_resp = requests.post(f"{BACKEND_URL}/api/classify", json=payload)
+                                    if class_resp.status_code == 200:
+                                        res = class_resp.json()
+                                        st.markdown("#### **Classification Output**")
+                                        
+                                        col_r1, col_r2, col_r3 = st.columns(3)
+                                        with col_r1:
+                                            st.markdown(f"**Predicted Domain:** `{res.get('predicted_domain')}`")
+                                        with col_r2:
+                                            st.markdown(f"**Ground Truth Domain:** `{res.get('true_domain')}`")
+                                        with col_r3:
+                                            match_status = "✅ Match" if res.get('is_correct') else "❌ Mismatch"
+                                            st.markdown(f"**Status:** {match_status}")
+                                            
+                                        # Highlight code rule rationale explanation
+                                        st.info(f"**Diagnostic Details:** Classification predicted **{res.get('predicted_domain')}** based on keyword matching logic in MLEngine rules.")
+                                    else:
+                                        st.error(f"Classification failed: {class_resp.text}")
+                                except Exception as err:
+                                    st.error(f"Error classifying paper: {err}")
+                else:
+                    st.error(f"Failed to fetch evaluation metrics from backend: {eval_resp.text}")
+            except Exception as e:
+                st.error(f"Could not connect to evaluate endpoint: {e}")
+

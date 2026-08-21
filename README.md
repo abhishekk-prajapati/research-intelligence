@@ -115,13 +115,13 @@ This automatically spins up:
 
 ## 🧪 Unit Testing Pipeline
 
-Verify all calculations (RRF rankings, FAISS read/write serialization, K-Means clustering, and personalization centroid maths) locally:
+Verify all calculations (RRF rankings, FAISS read/write serialization, K-Means clustering, personalization centroid maths, and domain classifier metrics) locally:
 ```bash
 python -m unittest tests/test_ml_pipeline.py
 ```
 *Output:*
 ```text
-Ran 8 tests in 0.339s
+Ran 9 tests in 0.230s
 OK
 ```
 
