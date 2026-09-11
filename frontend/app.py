@@ -5,7 +5,15 @@ import time
 import socket
 import subprocess
 
+# Backend service address
+BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+
 def start_backend():
+    # If the user has configured an external backend URL, DO NOT start the local backend!
+    if "127.0.0.1" not in BACKEND_URL and "localhost" not in BACKEND_URL:
+        print(f"External BACKEND_URL detected ({BACKEND_URL}). Skipping local backend startup.")
+        return
+
     def is_port_in_use(port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             return s.connect_ex(('127.0.0.1', port)) == 0
@@ -50,9 +58,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# Backend service address
-BACKEND_URL = "http://127.0.0.1:8000"
 
 st.sidebar.markdown("# 🌌 Research Intelligence")
 st.sidebar.markdown("### Scholarly AI Discovery Engine")
