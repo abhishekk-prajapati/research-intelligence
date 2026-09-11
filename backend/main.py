@@ -11,6 +11,11 @@ from backend.database import get_db, init_db, Paper, SessionLocal
 from backend.arxiv_client import ArxivClient
 from backend.ml_engine import MLEngine, HybridRetriever, ClusteringEngine, RecommendationEngine, RoadmapEngine, TrendEngine
 from backend.evaluation_engine import EvaluationEngine
+from backend.agents.fanout_agent import MultiSourceFanOutAgent
+from backend.agents.triage_agent import TriageAgent
+from backend.agents.extraction_agent import StructuredExtractionAgent
+from backend.agents.citation_qa_agent import CitationGroundedQAAgent
+from backend.agents.langgraph_orchestrator import orchestrator
 
 app = FastAPI(
     title="Research Intelligence Platform API",
@@ -323,6 +328,147 @@ def classify_paper(data: dict):
         "predicted_domain": pred_domain,
         "true_domain": true_domain,
         "is_correct": pred_domain == true_domain
+    }
+
+
+# ==========================================
+# 🤖 LANGCHAIN AI AGENT AUTOMATION ENDPOINTS
+# ==========================================
+
+@app.get("/api/agents/fan-out-search", summary="Multi-Source Fan-Out Live Search Agent")
+def agent_fanout_search(query: str, limit: int = Query(default=15, ge=1, le=50), db: Session = Depends(get_db)):
+    """Reaches out live to external paper databases (arXiv, Semantic Scholar) and local DB concurrently."""
+    db_papers = db.query(Paper).all()
+    local_serialized = [{
+        "id": p.id,
+        "title": p.title,
+        "abstract": p.abstract,
+        "authors": p.authors,
+        "published_date": p.published_date.isoformat(),
+        "primary_category": p.primary_category,
+        "pdf_link": p.pdf_link
+    } for p in db_papers]
+
+    # Perform hybrid local search first to get best local matches
+    if db_papers:
+        retrieved = HybridRetriever.retrieve(query, db_papers, limit=limit)
+        local_serialized = [{
+            "id": item["paper"].id,
+            "title": item["paper"].title,
+            "abstract": item["paper"].abstract,
+            "authors": item["paper"].authors,
+            "published_date": item["paper"].published_date.isoformat(),
+            "primary_category": item["paper"].primary_category,
+            "pdf_link": item["paper"].pdf_link
+        } for item in retrieved]
+
+    # Invoke via LangGraph State Graph Workflow
+    workflow_res = orchestrator.run_agent_workflow("fanout", query=query, candidate_papers=local_serialized)
+    results = workflow_res.get("results") or local_serialized
+    return {
+        "query": query,
+        "count": len(results),
+        "results": results
+    }
+
+
+@app.post("/api/agents/triage", summary="Triage and Relevance-Ranking Agent")
+def agent_triage_papers(data: dict, db: Session = Depends(get_db)):
+    """Evaluates candidate search papers on query relevance, recency, and methodology solidity."""
+    query = data.get("query", "")
+    papers = data.get("papers", [])
+
+    if not papers and query:
+        # Auto-fetch top search candidates from DB
+        db_papers = db.query(Paper).all()
+        if db_papers:
+            retrieved = HybridRetriever.retrieve(query, db_papers, limit=15)
+            papers = [{
+                "id": item["paper"].id,
+                "title": item["paper"].title,
+                "abstract": item["paper"].abstract,
+                "authors": item["paper"].authors,
+                "published_date": item["paper"].published_date.isoformat(),
+                "primary_category": item["paper"].primary_category,
+                "pdf_link": item["paper"].pdf_link
+            } for item in retrieved]
+
+    if not papers:
+        raise HTTPException(status_code=400, detail="No papers provided or found for triage evaluation.")
+
+    workflow_res = orchestrator.run_agent_workflow("triage", query=query, candidate_papers=papers)
+    triaged_results = workflow_res.get("results") or papers
+    return {
+        "query": query,
+        "count": len(triaged_results),
+        "results": triaged_results
+    }
+
+
+@app.post("/api/agents/extract-structure", summary="Structured Extraction Agent")
+def agent_extract_structure(data: dict, db: Session = Depends(get_db)):
+    """Extracts structured schema (dataset / method / result / limitation) per paper for comparison matrix."""
+    paper_ids = data.get("paper_ids", [])
+    papers_input = data.get("papers", [])
+
+    if not papers_input and paper_ids:
+        db_papers = db.query(Paper).filter(Paper.id.in_(paper_ids)).all()
+        papers_input = [{
+            "id": p.id,
+            "title": p.title,
+            "abstract": p.abstract,
+            "authors": p.authors,
+            "published_date": p.published_date.isoformat(),
+            "pdf_link": p.pdf_link
+        } for p in db_papers]
+
+    if not papers_input:
+        # Fallback to top 10 DB papers if none specified
+        db_papers = db.query(Paper).limit(10).all()
+        papers_input = [{
+            "id": p.id,
+            "title": p.title,
+            "abstract": p.abstract,
+            "authors": p.authors,
+            "published_date": p.published_date.isoformat(),
+            "pdf_link": p.pdf_link
+        } for p in db_papers]
+
+    workflow_res = orchestrator.run_agent_workflow("extraction", candidate_papers=papers_input)
+    matrix = workflow_res.get("comparison_matrix") or workflow_res.get("results") or []
+    return {
+        "count": len(matrix),
+        "comparison_matrix": matrix
+    }
+
+
+@app.post("/api/agents/citation-qa", summary="Citation-Grounded Q&A Agent")
+def agent_citation_qa(data: dict, db: Session = Depends(get_db)):
+    """Answers user questions strictly grounded in retrieved paper context with precise inline citations."""
+    question = data.get("question", "")
+    if not question:
+        raise HTTPException(status_code=400, detail="Question prompt is required.")
+
+    # Retrieve relevant papers using HybridRetriever
+    db_papers = db.query(Paper).all()
+    if not db_papers:
+        raise HTTPException(status_code=404, detail="No papers in database to answer from.")
+
+    retrieved = HybridRetriever.retrieve(question, db_papers, limit=6)
+    papers_context = [{
+        "id": item["paper"].id,
+        "title": item["paper"].title,
+        "abstract": item["paper"].abstract,
+        "authors": item["paper"].authors,
+        "published_date": item["paper"].published_date.isoformat(),
+        "pdf_link": item["paper"].pdf_link
+    } for item in retrieved]
+
+    workflow_res = orchestrator.run_agent_workflow("citation_qa", question=question, candidate_papers=papers_context)
+    return {
+        "question": question,
+        "answer": workflow_res.get("answer", ""),
+        "citations": workflow_res.get("citations", [])
     }
 
 

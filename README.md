@@ -32,11 +32,23 @@ graph TD
         D6[NLP Token Trend Parser] -->|Time-Series Stats| I[Trend Dashboard]
     end
     
+    subgraph "LangGraph AI Agent Suite"
+        L1[Multi-Source Fan-Out Agent]
+        L2[Triage & Relevance Ranking Agent]
+        L3[Structured Extraction Agent]
+        L4[Citation-Grounded Q&A Agent]
+        E --> L1 & L2 & L3 & L4
+    end
+    
     E -->|FastAPI Endpoints| J[FastAPI Backend]
     F --> J
     G --> J
     H --> J
     I --> J
+    L1 --> J
+    L2 --> J
+    L3 --> J
+    L4 --> J
     
     J -->|REST Queries| K[Streamlit Frontend]
 ```
@@ -79,6 +91,13 @@ To map the semantic structure of all publications:
     $$x, y = \text{PCA}(v) \in \mathbb{R}^2$$
     
 *   The results are rendered as an interactive scatter plot where clusters and domains are mapped visually.
+
+### 5. LangGraph AI Agent Automation Suite
+The platform integrates advanced autonomous agents orchestrated by a `StateGraph` state machine to ensure fault-tolerant execution:
+*   **Multi-Source Fan-Out Agent**: Concurrently searches the local FAISS index, arXiv API, and Semantic Scholar live API, deduplicating records by normalized titles.
+*   **Triage & Relevance Ranking Agent**: Dynamically evaluates search candidate papers on *Relevance*, *Recency*, and *Method Solidity*, calculating an overall score and natural language rationale.
+*   **Structured Extraction Agent**: Leverages Pydantic schemas and LLM structure parsing to instantly extract dataset benchmarks, core methods, key results, and limitations into comparison matrices.
+*   **Citation-Grounded Q&A Agent**: A rigorous RAG pipeline that answers user queries based *strictly* on retrieved contexts, embedding precise inline citations `[arXiv:ID]` for every synthesized claim to prevent hallucination.
 
 ---
 

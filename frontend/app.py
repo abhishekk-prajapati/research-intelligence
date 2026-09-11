@@ -109,13 +109,14 @@ elif db_papers_count == 0:
                 st.error(f"Seeding failed: {e}")
 else:
     # Define Tabs
-    tab_search, tab_recs, tab_roadmap, tab_cluster, tab_trends, tab_eval = st.tabs([
+    tab_search, tab_recs, tab_roadmap, tab_cluster, tab_trends, tab_eval, tab_agents = st.tabs([
         "🔍 Hybrid RRF Search",
         "🎯 Personalized Recommendations",
         "🗺️ Learning Roadmaps",
         "🔮 Topic Clustering Map",
         "📈 Trend Analysis",
-        "📊 Classifier Evaluation"
+        "📊 Classifier Evaluation",
+        "🤖 AI Agent Automation Suite"
     ])
 
     # ==========================================================================
@@ -646,3 +647,172 @@ else:
             except Exception as e:
                 st.error(f"Could not connect to evaluate endpoint: {e}")
 
+    # ==========================================================================
+    # TAB 7: LANGCHAIN AI AGENT AUTOMATION SUITE
+    # ==========================================================================
+    with tab_agents:
+        st.header("🤖 AI Agent Automation Suite")
+        st.markdown("Automated agent workflows powered by **LangChain**, multi-source aggregation, structured output extraction, and grounded citation RAG.")
+
+        subtab_qa, subtab_extract, subtab_triage, subtab_fanout = st.tabs([
+            "1. 📚 Citation-Grounded Q&A",
+            "2. 📊 Structured Extraction Matrix",
+            "3. 🎯 Triage & Relevance Ranking",
+            "4. 🌐 Multi-Source Fan-Out Search"
+        ])
+
+        # ----------------------------------------------------------------------
+        # AGENT 1: Citation-Grounded Q&A Agent
+        # ----------------------------------------------------------------------
+        with subtab_qa:
+            st.subheader("1. Citation-Grounded Q&A Agent")
+            st.caption("Answers your questions strictly grounded in retrieved database papers — showing exact inline citations [arXiv:ID] for every claim.")
+
+            qa_prompt = st.text_input("Ask a question about indexed research papers:", "What methods do these papers use for RAG performance optimization and context retrieval?", key="qa_prompt_input")
+
+            if st.button("Synthesize Grounded Answer", type="primary", key="btn_qa"):
+                if not qa_prompt:
+                    st.warning("Please enter a question prompt.")
+                else:
+                    with st.spinner("Retrieving database papers and generating grounded response..."):
+                        try:
+                            qa_resp = requests.post(f"{BACKEND_URL}/api/agents/citation-qa", json={"question": qa_prompt})
+                            if qa_resp.status_code == 200:
+                                data = qa_resp.json()
+                                st.markdown("### 💬 Grounded AI Answer")
+                                st.markdown(data.get("answer", ""))
+
+                                citations = data.get("citations", [])
+                                if citations:
+                                    st.markdown("---")
+                                    st.markdown("#### 🔗 Grounded Source Citations")
+                                    for idx, c in enumerate(citations, 1):
+                                        st.markdown(f"**{idx}. [{c.get('title')}]({c.get('pdf_link')})** — ID: `{c.get('id')}`")
+                            else:
+                                st.error(f"QA Agent failed: {qa_resp.text}")
+                        except Exception as err:
+                            st.error(f"Error connecting to QA agent endpoint: {err}")
+
+        # ----------------------------------------------------------------------
+        # AGENT 2: Structured Extraction Agent
+        # ----------------------------------------------------------------------
+        with subtab_extract:
+            st.subheader("2. Structured Extraction Agent")
+            st.caption("Extracts a standardized schema (Dataset / Method / Result / Limitation) for each paper into a skimmable comparison table.")
+
+            num_extract = st.slider("Select number of database papers to compare:", 3, 15, 6, key="slider_extract")
+
+            if st.button("Generate Comparison Table", type="primary", key="btn_extract"):
+                with st.spinner("Extracting structured fields across selected papers..."):
+                    try:
+                        ext_resp = requests.post(f"{BACKEND_URL}/api/agents/extract-structure", json={})
+                        if ext_resp.status_code == 200:
+                            matrix = ext_resp.json().get("comparison_matrix", [])[:num_extract]
+                            if matrix:
+                                df = pd.DataFrame(matrix)
+                                # Reorder columns
+                                display_cols = ["paper_id", "title", "dataset", "method", "result", "limitation"]
+                                available_cols = [c for c in display_cols if c in df.columns]
+                                df_display = df[available_cols].copy()
+                                df_display.columns = [c.replace("_", " ").title() for c in available_cols]
+
+                                st.dataframe(df_display, use_container_width=True)
+
+                                # Individual expandable paper view
+                                st.markdown("#### 📄 Detailed Extraction Forms")
+                                for item in matrix:
+                                    with st.expander(f"📌 {item.get('title')} ({item.get('paper_id')})"):
+                                        col_a, col_b = st.columns(2)
+                                        with col_a:
+                                            st.markdown(f"**Dataset / Benchmark:** {item.get('dataset')}")
+                                            st.markdown(f"**Method / Architecture:** {item.get('method')}")
+                                        with col_b:
+                                            st.markdown(f"**Key Result / Metric:** {item.get('result')}")
+                                            st.markdown(f"**Stated Limitation:** {item.get('limitation')}")
+                            else:
+                                st.info("No paper records found to extract.")
+                        else:
+                            st.error(f"Extraction failed: {ext_resp.text}")
+                    except Exception as err:
+                        st.error(f"Error connecting to extraction agent: {err}")
+
+        # ----------------------------------------------------------------------
+        # AGENT 3: Triage / Relevance-Ranking Agent
+        # ----------------------------------------------------------------------
+        with subtab_triage:
+            st.subheader("3. Triage / Relevance-Ranking Agent")
+            st.caption("Evaluates search candidate papers on query relevance, recency, and methodological solidity, bringing high-signal results to the top.")
+
+            triage_query = st.text_input("Triage Search Topic:", "State-of-the-art transformer architecture for long context windows", key="triage_query_input")
+
+            if st.button("Run Triage & Re-Ranking", type="primary", key="btn_triage"):
+                with st.spinner("Scoring candidate papers on relevance, recency, and methodology..."):
+                    try:
+                        tr_resp = requests.post(f"{BACKEND_URL}/api/agents/triage", json={"query": triage_query})
+                        if tr_resp.status_code == 200:
+                            results = tr_resp.json().get("results", [])
+                            st.markdown(f"### 🏆 Top Triaged Papers ({len(results)} evaluated)")
+
+                            for idx, item in enumerate(results, 1):
+                                t = item.get("triage", {})
+                                overall = t.get("overall_score", 0)
+                                title = item.get("title", "Untitled")
+
+                                with st.container():
+                                    c1, c2 = st.columns([4, 1])
+                                    with c1:
+                                        st.markdown(f"### {idx}. {title}")
+                                        st.markdown(f"**Authors:** {item.get('authors', 'Unknown')}")
+                                        st.markdown(f"**Published:** {item.get('published_date', '')[:10]}")
+                                        st.caption(f"💡 **Triage Rationale:** {t.get('rationale')}")
+                                    with c2:
+                                        st.metric("Triage Score", f"{overall}/10")
+                                        st.markdown(f"• Relevance: **{t.get('relevance_score')}/10**")
+                                        st.markdown(f"• Recency: **{t.get('recency_score')}/10**")
+                                        st.markdown(f"• Solidity: **{t.get('method_solidity_score')}/10**")
+                                    st.markdown("---")
+                        else:
+                            st.error(f"Triage failed: {tr_resp.text}")
+                    except Exception as err:
+                        st.error(f"Error connecting to triage endpoint: {err}")
+
+        # ----------------------------------------------------------------------
+        # AGENT 4: Multi-Source Fan-Out Agent
+        # ----------------------------------------------------------------------
+        with subtab_fanout:
+            st.subheader("4. Multi-Source Fan-Out Agent")
+            st.caption("Searches your local FAISS database, arXiv API, and Semantic Scholar live API simultaneously and deduplicates results.")
+
+            fanout_query = st.text_input("Live Multi-Source Search Query:", "Graph Neural Networks for molecular drug discovery", key="fanout_query_input")
+            limit_per_src = st.slider("Results limit per source:", 5, 20, 10, key="fanout_limit")
+
+            if st.button("Run Multi-Source Fan-Out Search", type="primary", key="btn_fanout"):
+                with st.spinner("Querying local DB, arXiv API, and Semantic Scholar live concurrently..."):
+                    try:
+                        fo_resp = requests.get(f"{BACKEND_URL}/api/agents/fan-out-search", params={"query": fanout_query, "limit": limit_per_src})
+                        if fo_resp.status_code == 200:
+                            data = fo_resp.json()
+                            results = data.get("results", [])
+                            st.markdown(f"### 🌐 Combined Search Results ({len(results)} deduplicated papers)")
+
+                            # Source distribution breakdown metrics
+                            sources = [p.get("source", "Unknown") for p in results]
+                            s_counts = pd.Series(sources).value_counts()
+                            m_cols = st.columns(len(s_counts))
+                            for col, (src_name, count) in zip(m_cols, s_counts.items()):
+                                col.metric(f"Source: {src_name}", count)
+
+                            st.markdown("---")
+
+                            for p in results:
+                                source = p.get("source", "External")
+                                badge_color = "🟢" if source == "Local Index" else ("🔴" if source == "arXiv" else "🔵")
+                                
+                                st.markdown(f"#### {badge_color} [{p.get('title')}]({p.get('pdf_link')})")
+                                st.markdown(f"**Source:** `{source}` | **ID:** `{p.get('id')}` | **Authors:** {p.get('authors', 'Unknown')}")
+                                st.markdown(f"> {p.get('abstract', '')[:300]}...")
+                                st.markdown("---")
+                        else:
+                            st.error(f"Fan-out search failed: {fo_resp.text}")
+                    except Exception as err:
+                        st.error(f"Error connecting to fan-out endpoint: {err}")
