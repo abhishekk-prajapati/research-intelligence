@@ -22,7 +22,17 @@ def start_backend():
             cwd=repo_root,
             env=env
         )
-        time.sleep(5)  # Give the server 5 seconds to spin up
+        # Poll for backend readiness (up to 30 seconds for cloud deployments)
+        import urllib.request
+        import urllib.error
+        
+        max_retries = 30
+        for _ in range(max_retries):
+            try:
+                urllib.request.urlopen("http://127.0.0.1:8000/docs", timeout=1)
+                break
+            except (urllib.error.URLError, socket.timeout):
+                time.sleep(1)
 
 start_backend()
 # -------------------------------------
