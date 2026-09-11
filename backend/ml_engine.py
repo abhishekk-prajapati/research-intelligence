@@ -19,11 +19,20 @@ class MLEngine:
 
     @classmethod
     def get_embedding_model(cls):
-        """Lazy load SentenceTransformers model to reduce startup time."""
+        """Lazy load Embedding model. Prioritizes API to prevent OOM on cloud."""
         if cls._model is None:
-            from sentence_transformers import SentenceTransformer
-            print(f"Loading SentenceTransformer: {EMBEDDING_MODEL_NAME}...")
-            cls._model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+            if os.getenv("GOOGLE_API_KEY"):
+                from langchain_google_genai import GoogleGenerativeAIEmbeddings
+                print("Loading GoogleGenerativeAIEmbeddings (models/text-embedding-004)...")
+                cls._model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+            elif os.getenv("OPENAI_API_KEY"):
+                from langchain_openai import OpenAIEmbeddings
+                print("Loading OpenAIEmbeddings (text-embedding-3-small)...")
+                cls._model = OpenAIEmbeddings(model="text-embedding-3-small")
+            else:
+                from sentence_transformers import SentenceTransformer
+                print(f"Loading local SentenceTransformer: {EMBEDDING_MODEL_NAME}...")
+                cls._model = SentenceTransformer(EMBEDDING_MODEL_NAME)
         return cls._model
 
     @classmethod
@@ -32,7 +41,13 @@ class MLEngine:
         if not texts:
             return []
         model = cls.get_embedding_model()
-        # Use a small batch_size to prevent OOM on 1GB Streamlit containers
+        
+        # If model has embed_documents (LangChain model)
+        if hasattr(model, "embed_documents"):
+            # Chunking requests to prevent payload size limits
+            return model.embed_documents(texts)
+            
+        # Fallback to local SentenceTransformers
         embeddings = model.encode(texts, batch_size=8, show_progress_bar=False)
         return [emb.tolist() for emb in embeddings]
 
