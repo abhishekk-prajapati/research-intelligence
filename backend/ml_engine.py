@@ -32,7 +32,8 @@ class MLEngine:
         if not texts:
             return []
         model = cls.get_embedding_model()
-        embeddings = model.encode(texts, show_progress_bar=False)
+        # Use a small batch_size to prevent OOM on 1GB Streamlit containers
+        embeddings = model.encode(texts, batch_size=8, show_progress_bar=False)
         return [emb.tolist() for emb in embeddings]
 
     @classmethod

@@ -17,4 +17,5 @@ SEED_TOPICS = [
 ]
 
 # Max papers fetched per topic during initial seeding
-SEED_LIMIT_PER_TOPIC = 40
+# Defaulted to 5 to prevent Out-Of-Memory (OOM) crashes on Streamlit Cloud 1GB containers.
+SEED_LIMIT_PER_TOPIC = int(os.getenv("SEED_LIMIT_PER_TOPIC", "5"))
