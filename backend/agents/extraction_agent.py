@@ -23,7 +23,7 @@ class StructuredExtractionAgent:
         """
         Extracts structured forms for a batch of papers using LangChain or heuristic extraction.
         """
-        has_api_key = bool(os.getenv("OPENAI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+        has_api_key = bool(os.getenv("OPENAI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
 
         if has_api_key:
             return cls._extract_with_langchain(papers)
@@ -75,7 +75,8 @@ class StructuredExtractionAgent:
                 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
             else:
                 from langchain_google_genai import ChatGoogleGenerativeAI
-                llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
+                google_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+                llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0, google_api_key=google_key)
 
             from langchain_core.prompts import ChatPromptTemplate
             

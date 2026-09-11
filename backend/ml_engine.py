@@ -21,10 +21,11 @@ class MLEngine:
     def get_embedding_model(cls):
         """Lazy load Embedding model. Prioritizes API to prevent OOM on cloud."""
         if cls._model is None:
-            if os.getenv("GOOGLE_API_KEY"):
+            google_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+            if google_key:
                 from langchain_google_genai import GoogleGenerativeAIEmbeddings
                 print("Loading GoogleGenerativeAIEmbeddings (models/text-embedding-004)...")
-                cls._model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+                cls._model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=google_key)
             elif os.getenv("OPENAI_API_KEY"):
                 from langchain_openai import OpenAIEmbeddings
                 print("Loading OpenAIEmbeddings (text-embedding-3-small)...")

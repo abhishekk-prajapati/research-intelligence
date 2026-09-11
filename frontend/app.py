@@ -5,6 +5,19 @@ import time
 import socket
 import subprocess
 
+# Propagate Streamlit Cloud secrets to environment variables if available
+try:
+    import streamlit as st
+    for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "BACKEND_URL"]:
+        if key in st.secrets and key not in os.environ:
+            os.environ[key] = str(st.secrets[key])
+except Exception:
+    pass
+
+# Normalize GEMINI_API_KEY -> GOOGLE_API_KEY for LangChain & Google AI SDK
+if os.getenv("GEMINI_API_KEY") and not os.getenv("GOOGLE_API_KEY"):
+    os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY")
+
 # Backend service address
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 

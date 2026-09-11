@@ -26,7 +26,7 @@ class TriageAgent:
         scored_papers = []
 
         # Check if LangChain OpenAI / Gemini API key is configured
-        has_api_key = bool(os.getenv("OPENAI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+        has_api_key = bool(os.getenv("OPENAI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
 
         if has_api_key:
             scored_papers = cls._evaluate_with_langchain(query, papers)
@@ -97,7 +97,8 @@ class TriageAgent:
                 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
             else:
                 from langchain_google_genai import ChatGoogleGenerativeAI
-                llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
+                google_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+                llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0, google_api_key=google_key)
             
             from langchain_core.prompts import ChatPromptTemplate
             
