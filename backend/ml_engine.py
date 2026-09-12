@@ -45,8 +45,20 @@ class MLEngine:
         
         # If model has embed_documents (LangChain model)
         if hasattr(model, "embed_documents"):
-            # Chunking requests to prevent payload size limits
-            return model.embed_documents(texts)
+            # Chunking requests to prevent payload size and rate limits
+            import time
+            batch_size = 5
+            all_embeddings = []
+            for i in range(0, len(texts), batch_size):
+                batch = texts[i:i+batch_size]
+                try:
+                    all_embeddings.extend(model.embed_documents(batch))
+                    time.sleep(1) # Respect free-tier rate limits
+                except Exception as e:
+                    print(f"API Error generating embeddings for batch {i}: {e}")
+                    # Fallback to zero vectors if API fails to prevent crashing the batch
+                    all_embeddings.extend([[0.0] * 768] * len(batch))
+            return all_embeddings
             
         # Fallback to local SentenceTransformers
         embeddings = model.encode(texts, batch_size=8, show_progress_bar=False)

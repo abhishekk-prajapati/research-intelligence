@@ -136,7 +136,11 @@ def search(query: str, limit: int = Query(default=10, ge=1, le=50), db: Session 
     """Queries papers using hybrid scores fused with Reciprocal Rank Fusion (RRF)."""
     papers = db.query(Paper).all()
     if not papers:
-        raise HTTPException(status_code=404, detail="No papers indexed in database. Trigger /api/seed first.")
+        return {
+            "query": query, 
+            "results": [],
+            "diagnostics": {"total_ms": 0, "lexical_ms": 0, "semantic_ms": 0}
+        }
 
     # Time search execution for system performance diagnostics
     t_start = time.time()
@@ -254,7 +258,7 @@ def generate_roadmap(topic: str, depth: int = Query(default=6, ge=3, le=9), db: 
     """Generates chronologically partitioned paper roadmap tiers for study paths."""
     all_papers = db.query(Paper).all()
     if not all_papers:
-        raise HTTPException(status_code=404, detail="Database contains no papers.")
+        return {"topic": topic, "dominant_domain": "Unknown", "tiers": {}, "repositories": []}
 
     roadmap = RoadmapEngine.generate_roadmap(topic, all_papers, depth=depth)
 
@@ -284,7 +288,7 @@ def get_clusters(db: Session = Depends(get_db)):
     """Assigns papers to clusters and computes 2D coordinates for Plotly charts."""
     all_papers = db.query(Paper).all()
     if not all_papers:
-        raise HTTPException(status_code=404, detail="Database contains no papers.")
+        return {"papers": [], "centroids": []}
 
     cluster_data = ClusteringEngine.cluster_papers(all_papers)
     return cluster_data
@@ -295,7 +299,7 @@ def get_trends(db: Session = Depends(get_db)):
     """Aggregates timeseries timeline and top keyword shifts."""
     all_papers = db.query(Paper).all()
     if not all_papers:
-        raise HTTPException(status_code=404, detail="Database contains no papers.")
+        return {"timeline": [], "keywords": [], "domain_distribution": []}
 
     trends = TrendEngine.analyze_trends(all_papers)
     return trends
@@ -306,7 +310,7 @@ def evaluate(db: Session = Depends(get_db)):
     """Computes classifier evaluation metrics: accuracy, precision, recall, f1, confusion matrix, and mismatches."""
     papers = db.query(Paper).all()
     if not papers:
-        raise HTTPException(status_code=404, detail="Database contains no papers to evaluate.")
+        return {"accuracy": 0, "precision": 0, "recall": 0, "f1": 0, "mismatches": []}
     
     metrics = EvaluationEngine.evaluate_classifier(papers)
     return metrics
