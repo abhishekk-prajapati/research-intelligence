@@ -24,8 +24,31 @@ class MLEngine:
             google_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
             if google_key:
                 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-                print("Loading GoogleGenerativeAIEmbeddings (models/text-embedding-004)...")
-                cls._model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=google_key)
+                # Try models in order of preference - different API keys have different model access
+                model_names = [
+                    "models/text-embedding-004",
+                    "text-embedding-004",
+                    "models/embedding-001",
+                    "embedding-001",
+                ]
+                for model_name in model_names:
+                    try:
+                        print(f"Trying GoogleGenerativeAIEmbeddings with model: {model_name}...")
+                        candidate = GoogleGenerativeAIEmbeddings(model=model_name, google_api_key=google_key)
+                        # Test with a single string to verify it works
+                        test = candidate.embed_documents(["test"])
+                        if test:
+                            cls._model = candidate
+                            print(f"✅ Successfully loaded embedding model: {model_name}")
+                            break
+                    except Exception as e:
+                        print(f"❌ Model {model_name} failed: {e}")
+                        continue
+                # If all API models failed, fall back to local
+                if cls._model is None:
+                    print("⚠️ All Gemini embedding models failed. Falling back to local SentenceTransformer...")
+                    from sentence_transformers import SentenceTransformer
+                    cls._model = SentenceTransformer(EMBEDDING_MODEL_NAME)
             elif os.getenv("OPENAI_API_KEY"):
                 from langchain_openai import OpenAIEmbeddings
                 print("Loading OpenAIEmbeddings (text-embedding-3-small)...")
@@ -35,6 +58,7 @@ class MLEngine:
                 print(f"Loading local SentenceTransformer: {EMBEDDING_MODEL_NAME}...")
                 cls._model = SentenceTransformer(EMBEDDING_MODEL_NAME)
         return cls._model
+
 
     @classmethod
     def generate_embeddings(cls, texts: list) -> list:
