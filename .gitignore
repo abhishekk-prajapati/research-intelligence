@@ -4,9 +4,9 @@ __pycache__/
 *$py.class
 *.pyd
 
-# Databases and Vector Index caches
-research_platform.db
-research_platform.faiss
+# Databases and Vector Index caches (committed to repo for Streamlit Cloud pre-seeding)
+# research_platform.db   <- intentionally tracked
+# research_platform.faiss <- intentionally tracked
 test_index.faiss
 
 # Environments
