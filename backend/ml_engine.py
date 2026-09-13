@@ -17,14 +17,18 @@ except ImportError:
 class MLEngine:
     _model = None
 
+    _embedding_failed = False  # Track if all embedding APIs failed
+
     @classmethod
     def get_embedding_model(cls):
-        """Lazy load Embedding model. Prioritizes API to prevent OOM on cloud."""
+        """Lazy load Embedding model. Prioritizes Cloud API to prevent OOM crashes on Streamlit Cloud."""
+        if cls._embedding_failed:
+            return None  # Don't retry if we already know it failed
         if cls._model is None:
             google_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
             if google_key:
                 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-                # Try models in order of preference - different API keys have different model access
+                # Try all known model names - availability varies by API key tier
                 model_names = [
                     "models/text-embedding-004",
                     "text-embedding-004",
@@ -35,7 +39,6 @@ class MLEngine:
                     try:
                         print(f"Trying GoogleGenerativeAIEmbeddings with model: {model_name}...")
                         candidate = GoogleGenerativeAIEmbeddings(model=model_name, google_api_key=google_key)
-                        # Test with a single string to verify it works
                         test = candidate.embed_documents(["test"])
                         if test:
                             cls._model = candidate
@@ -44,19 +47,29 @@ class MLEngine:
                     except Exception as e:
                         print(f"❌ Model {model_name} failed: {e}")
                         continue
-                # If all API models failed, fall back to local
                 if cls._model is None:
-                    print("⚠️ All Gemini embedding models failed. Falling back to local SentenceTransformer...")
-                    from sentence_transformers import SentenceTransformer
-                    cls._model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+                    # IMPORTANT: Do NOT fall back to SentenceTransformer on cloud (causes OOM crash).
+                    # Instead mark as failed and use TF-IDF-only lexical search.
+                    print("⚠️ All Gemini embedding models failed. Papers will be saved WITHOUT dense vectors.")
+                    print("⚠️ Search will use TF-IDF lexical mode only until embeddings are available.")
+                    cls._embedding_failed = True
+                    return None
             elif os.getenv("OPENAI_API_KEY"):
                 from langchain_openai import OpenAIEmbeddings
                 print("Loading OpenAIEmbeddings (text-embedding-3-small)...")
                 cls._model = OpenAIEmbeddings(model="text-embedding-3-small")
             else:
-                from sentence_transformers import SentenceTransformer
-                print(f"Loading local SentenceTransformer: {EMBEDDING_MODEL_NAME}...")
-                cls._model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+                # Only use local model when running locally (not on Streamlit Cloud)
+                import platform
+                is_cloud = os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("IS_CLOUD", "false").lower() == "true"
+                if not is_cloud:
+                    from sentence_transformers import SentenceTransformer
+                    print(f"Loading local SentenceTransformer: {EMBEDDING_MODEL_NAME}...")
+                    cls._model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+                else:
+                    print("⚠️ No API key configured. Running in TF-IDF-only mode.")
+                    cls._embedding_failed = True
+                    return None
         return cls._model
 
 
@@ -66,10 +79,14 @@ class MLEngine:
         if not texts:
             return []
         model = cls.get_embedding_model()
+
+        # If no embedding model is available, return empty lists so papers still get saved
+        if model is None:
+            print(f"No embedding model available. Returning empty vectors for {len(texts)} texts.")
+            return [[] for _ in texts]  # Empty = no dense vector, TF-IDF search still works
         
-        # If model has embed_documents (LangChain model)
+        # LangChain API model (Gemini / OpenAI)
         if hasattr(model, "embed_documents"):
-            # Chunking requests to prevent payload size and rate limits
             import time
             batch_size = 5
             all_embeddings = []
@@ -77,14 +94,13 @@ class MLEngine:
                 batch = texts[i:i+batch_size]
                 try:
                     all_embeddings.extend(model.embed_documents(batch))
-                    time.sleep(1) # Respect free-tier rate limits
+                    time.sleep(1)  # Respect free-tier rate limits
                 except Exception as e:
-                    print(f"API Error generating embeddings for batch {i}: {e}")
-                    # Fallback to zero vectors if API fails to prevent crashing the batch
-                    all_embeddings.extend([[0.0] * 768] * len(batch))
+                    print(f"API Error batch {i}: {e}. Using empty vectors.")
+                    all_embeddings.extend([[] for _ in batch])  # Empty, not zero
             return all_embeddings
             
-        # Fallback to local SentenceTransformers
+        # Local SentenceTransformer (only used when running locally)
         embeddings = model.encode(texts, batch_size=8, show_progress_bar=False)
         return [emb.tolist() for emb in embeddings]
 

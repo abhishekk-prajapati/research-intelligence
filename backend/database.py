@@ -44,7 +44,10 @@ class Paper(Base):
         return []
 
     def set_embedding(self, vec):
-        self.embedding = json.dumps(list(vec))
+        if vec:  # Only store if non-empty — empty means no API embedding available
+            self.embedding = json.dumps(list(vec))
+        else:
+            self.embedding = None  # Paper saved without embedding; TF-IDF search still works
 
 def init_db():
     Base.metadata.create_all(bind=engine)
